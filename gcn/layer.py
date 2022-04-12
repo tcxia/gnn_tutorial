@@ -1,61 +1,37 @@
+from audioop import bias
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
+import math
 
 class GraphConv(nn.Module):
-    def __init__(self, input_dim, output_dim, num_features, dropout=0., is_sparse_inputs=False, bias=False, activation=F.relu, featureless=False) -> None:
+    def __init__(self, input_dim, output_dim, bias=True) -> None:
         super().__init__()
 
-        self.dropout =dropout
-        # self.bias = bias
-        self.activation = activation
-        self.is_sparse_inputs = is_sparse_inputs
-        self.featureless = featureless
-        self.num_features = num_features
+        self.input_dim = input_dim
+        self.output_dim = output_dim
 
-        self.weight = nn.Parameter(torch.randn(input_dim, output_dim))
-        self.bias = None
+        self.weight = nn.Parameter(torch.FloatTensor(input_dim, output_dim))
         if bias:
-            self.bias = nn.Parameter(torch.zeros(output_dim))
-
-        
-    def forward(self, inputs):
-        x, support = inputs
-        
-        if self.training and self.is_sparse_inputs:
-            x = self.sparse_dropout(x, self.dropout, self.num_features)
-        elif self.training:
-            x = F.dropout(x, self.dropout)
-
-        if not self.featureless:
-            if self.is_sparse_inputs:
-                xw = torch.sparse.mm(x, self.weight)
-            else:
-                xw = torch.mm(x, self.weight)
+            self.bias = nn.Parameter(torch.FloatTensor(output_dim))
         else:
-            xw = self.weight
-
-        out = self.sparse.mm(support, xw)
+            self.register_parameter('bias', None)
         
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1. / math.sqrt(self.weight.size(1))
+        self.weight.data.uniform_(-stdv, stdv)
         if self.bias is not None:
-            out += self.bias
-        
-        return self.activation(out), support
+            self.bias.data.uniform_(-stdv, stdv)
 
+    def forward(self, input, adj):
+        support = torch.mm(input, self.weight)
+        output = torch.spmm(adj, support)
+        if self.bias is not None:
+            return output + self.bias
+        else:
+            return output
 
-    def sparse_dropout(self, x, rate, noise_shape):
-        random_tensor = 1 - rate
-        random_tensor += torch.rand(noise_shape).to(x.device)
-        dropout_mask = torch.floor(random_tensor).byte()
-        i = x._indices()
-        v = x._values()
-
-        i = i[:, dropout_mask]
-        v = v[dropout_mask]
-
-        out = torch.sparse.FloatTensor(i, v, x.shape).to(x.device)
-
-        out = out * (1. / (1 - rate))
-
-        return out
+    def __repr__(self) -> str:
+        return self.__class__.__name__ + '(' + str(self.input_dim) + ' -> ' + str(self.output_dim) + ')'
