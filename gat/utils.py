@@ -62,3 +62,10 @@ def load_data(path='cora', dataset='cora'):
 
     return adj, features, labels, idx_train, idx_val, idx_test
 
+
+
+def accuracy(output, labels):
+    preds = output.max(1)[1].type_as(labels)
+    correct = preds.eq(labels).double()
+    correct = correct.sum()
+    return correct / len(labels)
